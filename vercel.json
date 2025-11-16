@@ -2,7 +2,7 @@
     "crons": [
         {
             "path": "/api/sync_fault_data",
-            "schedule": "0 * * * *"
+            "schedule": "0 0 * * *"
         }
     ]
 }
