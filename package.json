@@ -1,0 +1,9 @@
+{
+    "name": "geotab-neon-pipeline",
+    "version": "1.0.0",
+    "private": true,
+    "dependencies": {
+        "@neondatabase/serverless": "^1.0.0",
+        "mg-api-js": "^3.0.0"
+    }
+}
