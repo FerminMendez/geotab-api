@@ -1,5 +1,5 @@
-const { neon } = require('@neondatabase/serverless');
-const GeotabApi = require('mg-api-js');
+import { neon } from '@neondatabase/serverless';
+import GeotabApi from 'mg-api-js';
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -12,16 +12,13 @@ async function getLastTimestamp() {
     WHERE source = 'fault_data'
   `;
   if (rows.length === 0) {
-    // fallback por si no existe el registro (no debería pasar, pero por si acaso)
     return new Date('2000-01-01T00:00:00Z').toISOString();
   }
-  // Neon suele devolver timestamps como string ISO o Date; los normalizamos a ISO string
   const ts = rows[0].last_timestamp;
   return ts instanceof Date ? ts.toISOString() : ts;
 }
 
 async function updateLastTimestamp(newTs) {
-  // newTs puede ser Date o string
   const iso = newTs instanceof Date ? newTs.toISOString() : newTs;
   await sql`
     UPDATE sync_state
@@ -32,31 +29,19 @@ async function updateLastTimestamp(newTs) {
 
 async function insertFaultData(rows) {
   for (const f of rows) {
-    // device_id
-    const deviceId =
-      f.device && typeof f.device === 'object' ? f.device.id : null;
+    const deviceId = f.device?.id ?? null;
+    const diagnosticId = f.diagnostic?.id ?? null;
+    const controllerId = f.controller?.id ?? null;
 
-    // diagnostic code
-    const diagnosticId =
-      f.diagnostic && typeof f.diagnostic === 'object' ? f.diagnostic.id : null;
-
-    // controller_id
-    const controllerId =
-      f.controller && typeof f.controller === 'object' ? f.controller.id : null;
-
-    // severity: preferimos faultStates.effectiveStatus
     let severity = null;
-    if (f.faultStates && typeof f.faultStates === 'object') {
-      severity = f.faultStates.effectiveStatus || null;
-    } else if (f.faultState) {
-      severity = f.faultState;
+    if (typeof f.faultStates === 'object') {
+      severity = f.faultStates.effectiveStatus ?? null;
+    } else {
+      severity = f.faultState ?? null;
     }
 
-    // is_active
     const isActive = f.faultState === 'Active';
-
-    // occurred_at
-    const occurredAt = f.dateTime || null; // normalmente Date o string ISO
+    const occurredAt = f.dateTime || null;
 
     await sql`
       INSERT INTO fault_data 
@@ -70,52 +55,41 @@ async function insertFaultData(rows) {
 }
 
 // Vercel serverless handler
-module.exports = async (req, res) => {
-  // Solo permitir GET (útil para probar en el navegador)
+export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
 
   try {
-    // 1. Leer último timestamp de Neon
     const lastTs = await getLastTimestamp();
 
-    // 2. Configurar Geotab API wrapper
     const authentication = {
       credentials: {
         database: process.env.GEOTAB_DATABASE,
         userName: process.env.GEOTAB_USERNAME,
         password: process.env.GEOTAB_PASSWORD
       }
-      // path se puede omitir: va a my.geotab.com y redirige al servidor correcto :contentReference[oaicite:2]{index=2}
     };
 
     const api = new GeotabApi(authentication);
-
-    // (opcional, pero explícito)
     await api.authenticate();
 
-    // 3. Llamar a MyGeotab para FaultData incremental
     const results = await api.call('Get', {
       typeName: 'FaultData',
       search: {
-        fromDate: lastTs // puede ser ISO string
+        fromDate: lastTs
       }
     });
 
-    // 4. Insertar en Neon
     if (Array.isArray(results) && results.length > 0) {
       await insertFaultData(results);
 
-      // 5. Calcular nuevo timestamp máximo
       let maxDate = null;
       for (const r of results) {
         if (!r.dateTime) continue;
         const d = r.dateTime instanceof Date ? r.dateTime : new Date(r.dateTime);
-        if (!maxDate || d > maxDate) {
-          maxDate = d;
-        }
+        if (!maxDate || d > maxDate) maxDate = d;
       }
 
       if (maxDate) {
@@ -123,7 +97,6 @@ module.exports = async (req, res) => {
       }
     }
 
-    // 6. Respuesta OK
     res.status(200).json({
       status: 'ok',
       inserted: Array.isArray(results) ? results.length : 0,
@@ -136,4 +109,4 @@ module.exports = async (req, res) => {
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
-};
+}

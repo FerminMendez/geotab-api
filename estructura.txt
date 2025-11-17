@@ -1,0 +1,51 @@
+﻿Listado de rutas de carpetas para el volumen Windows
+El número de serie del volumen es A45E-6594
+C:.
+|   .env
+|   .gitignore
+|   eda.ipynb
+|   estructura.txt
+|   get_geotab_data.py
+|   mygeotab.API
+|   package.json
+|   README.md
+|   requirements.txt
+|   sync_fault_data.py
+|   test_neon.py
+|   vercel.json
+|   
+|       +---jupyter
+|       |   +---kernels
+|       |   |   \---python3
+|       |   |           kernel.json
+|       |   |           logo-32x32.png
+|       |   |           logo-64x64.png
+|       |   |           logo-svg.svg
+|       |   |           
+|       |   \---labextensions
+|       |       \---jupyterlab-plotly
+|       |           |   install.json
+|       |           |   package.json
+|       |           |   
+|       |           \---static
+|       |                   340.310a22805a4f2bd627f2.js
+|       |                   remoteEntry.cf61b7703ecd84191a10.js
+|       |                   style.js
+|       |                   
+|       \---man
+|           \---man1
+|                   ipython.1
+|                   ttx.1
+|                   
++---api
+|       sync_fault_data.js
+|       
+\---exports
+        Device_20251115_205151.csv
+        FaultData_20251115_205156.csv
+        geotab_export.log
+        Rule_20251115_205155.csv
+        Trip_20251115_205153.csv
+        User_20251115_205154.csv
+        Zone_20251115_205154.csv
+        
