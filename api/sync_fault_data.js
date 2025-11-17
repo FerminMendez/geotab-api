@@ -1,5 +1,5 @@
-import { neon } from '@neondatabase/serverless';
-import GeotabApi from 'mg-api-js';
+const { neon } = require('@neondatabase/serverless');
+const GeotabApi = require('mg-api-js');
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -55,7 +55,7 @@ async function insertFaultData(rows) {
 }
 
 // Vercel serverless handler
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
@@ -109,4 +109,4 @@ export default async function handler(req, res) {
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
-}
+};
