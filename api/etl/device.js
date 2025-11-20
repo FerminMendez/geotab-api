@@ -4,7 +4,7 @@ const sql = neon(process.env.DATABASE_URL);
 async function upsertDevices(devices) {
   for (const d of devices) {
     await sql`
-      INSERT INTO device (
+      INSERT INTO geotab_device (
         id, name, serial_number, device_type, license_plate,
         vin, active_from, active_to, is_active, time_zone,
         speeding_on, speeding_off, engine_type, raw, last_update

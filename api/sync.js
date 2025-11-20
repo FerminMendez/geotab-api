@@ -2,10 +2,11 @@ const GeotabApi = require("mg-api-js");
 
 const { syncFaultData } = require("./etl/fault");
 const { syncDevice } = require("./etl/device");
+const { syncTrip } = require("./etl/trip");
 const { syncUser } = require("./etl/user");
 const { syncZone } = require("./etl/zone");
 const { syncRule } = require("./etl/rule");
-const { syncTrip } = require("./etl/trip");
+
 
 
 const { logSuccess, logError } = require("./etl/utils");

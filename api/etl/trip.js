@@ -31,8 +31,47 @@ async function updateTripTimestamp(ts) {
    Insert Trip rows
 ------------------------------------------- */
 
+function durationToSeconds(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.round(value);
+  }
+
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  // Handle optional day prefix formatted as "d.hh:mm:ss"
+  let days = 0;
+  let timePortion = trimmed;
+  const daySplit = trimmed.split(".");
+  if (daySplit.length === 2 && !daySplit[0].includes(":") && daySplit[1].includes(":")) {
+    days = parseInt(daySplit[0], 10) || 0;
+    timePortion = daySplit[1];
+  }
+
+  const segments = timePortion.split(":");
+  if (segments.length !== 3) return null;
+
+  const hours = parseInt(segments[0], 10);
+  const minutes = parseInt(segments[1], 10);
+  const seconds = parseFloat(segments[2]);
+
+  if ([hours, minutes, seconds].some((n) => Number.isNaN(n))) {
+    return null;
+  }
+
+  const totalSeconds = days * 86400 + hours * 3600 + minutes * 60 + seconds;
+  return Math.round(totalSeconds);
+}
+
 async function insertTrips(list) {
   for (const t of list) {
+    const idleSeconds = durationToSeconds(t.idlingDuration ?? t.idleDuration);
+    const driveSeconds = durationToSeconds(t.drivingDuration ?? t.driveDuration);
+    const stopSeconds = durationToSeconds(t.stopDuration);
+
     await sql`
       INSERT INTO geotab_trip (
         id, device_id, driver_id,
@@ -50,9 +89,9 @@ async function insertTrips(list) {
         ${t.stop || null},
         ${t.distance || null},
         ${t.maximumSpeed || null},
-        ${t.idleDuration || null},
-        ${t.driveDuration || null},
-        ${t.stopDuration || null},
+        ${idleSeconds},
+        ${driveSeconds},
+        ${stopSeconds},
         ${JSON.stringify(t.startPosition || null)},
         ${JSON.stringify(t.stopPosition || null)},
         ${JSON.stringify(t)},
