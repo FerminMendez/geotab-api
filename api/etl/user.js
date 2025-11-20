@@ -1,5 +1,8 @@
 const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
+const { updateSyncState, markSyncError } = require("../lib/sync_state");
+
+const SOURCE = "user";
 
 async function upsertUsers(users) {
   let processed = 0;
@@ -37,18 +40,29 @@ async function upsertUsers(users) {
 
 async function syncUser(api) {
   console.log("2.3 User - fetching from Geotab");
-  const users = await api.call("Get", {
-    typeName: "User",
-    resultsLimit: 10000
-  });
-  console.log(`2.3 User - received ${users.length} records, starting upsert`);
+  try {
+    const users = await api.call("Get", {
+      typeName: "User",
+      resultsLimit: 10000
+    });
+    console.log(`2.3 User - received ${users.length} records, starting upsert`);
 
-  await upsertUsers(users);
-  console.log("2.3 User - completed");
+    await upsertUsers(users);
+    console.log("2.3 User - completed");
 
-  return {
-    usersProcessed: users.length
-  };
+    await updateSyncState(SOURCE, {
+      lastTimestamp: new Date().toISOString(),
+      recordsCount: users.length,
+      lastError: null
+    });
+
+    return {
+      usersProcessed: users.length
+    };
+  } catch (err) {
+    await markSyncError(SOURCE, err);
+    throw err;
+  }
 }
 
 module.exports = { syncUser };

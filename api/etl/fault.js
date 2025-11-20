@@ -1,23 +1,8 @@
 const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
+const { getSyncCursor, updateSyncState, markSyncError } = require("../lib/sync_state");
 
-async function getLastTimestamp() {
-  const rows = await sql`
-    SELECT last_timestamp
-    FROM sync_state
-    WHERE source = 'fault_data'
-  `;
-  if (rows.length === 0) return new Date("2000-01-01T00:00:00Z").toISOString();
-  const ts = rows[0].last_timestamp;
-  return ts instanceof Date ? ts.toISOString() : ts;
-}
-
-async function updateLastTimestamp(ts) {
-  await sql`
-    UPDATE sync_state SET last_timestamp=${ts}
-    WHERE source='fault_data'
-  `;
-}
+const SOURCE = "fault_data";
 
 async function insertFaultData(rows) {
   for (const f of rows) {
@@ -44,42 +29,49 @@ async function insertFaultData(rows) {
 
 async function syncFaultData(api) {
   console.log("2.1 FaultData - preparing request");
-  const lastTs = await getLastTimestamp();
-  console.log(`2.1 FaultData - fromDate ${lastTs}`);
+  try {
+    const lastTs = await getSyncCursor(SOURCE);
+    console.log(`2.1 FaultData - fromDate ${lastTs}`);
 
-  const results = await api.call("Get", {
-    typeName: "FaultData",
-    search: { fromDate: lastTs }
-  });
-  console.log(`2.1 FaultData - received ${results.length} records`);
+    const results = await api.call("Get", {
+      typeName: "FaultData",
+      search: { fromDate: lastTs }
+    });
+    console.log(`2.1 FaultData - received ${results.length} records`);
 
-  let count = 0;
-  let maxDate = null;
+    let count = 0;
+    let maxDate = null;
 
-  if (results.length > 0) {
-    console.log("2.1 FaultData - inserting rows into Neon");
-    await insertFaultData(results);
-    count = results.length;
+    if (results.length > 0) {
+      console.log("2.1 FaultData - inserting rows into Neon");
+      await insertFaultData(results);
+      count = results.length;
 
-    for (const r of results) {
-      if (r.dateTime) {
-        const d = new Date(r.dateTime);
-        if (!maxDate || d > maxDate) maxDate = d;
+      for (const r of results) {
+        if (r.dateTime) {
+          const d = new Date(r.dateTime);
+          if (!maxDate || d > maxDate) maxDate = d;
+        }
       }
     }
 
-    if (maxDate) {
-      console.log(`2.1 FaultData - updating sync_state to ${maxDate.toISOString()}`);
-      await updateLastTimestamp(maxDate.toISOString());
-    }
-  }
+    const targetTimestamp = maxDate ? maxDate.toISOString() : lastTs;
+    await updateSyncState(SOURCE, {
+      lastTimestamp: targetTimestamp,
+      recordsCount: count,
+      lastError: null
+    });
 
-  console.log("2.1 FaultData - completed");
-  return {
-    recordsInserted: count,
-    fromDate: lastTs,
-    toDate: maxDate
-  };
+    console.log("2.1 FaultData - completed");
+    return {
+      recordsInserted: count,
+      fromDate: lastTs,
+      toDate: maxDate
+    };
+  } catch (err) {
+    await markSyncError(SOURCE, err);
+    throw err;
+  }
 }
 
 module.exports = { syncFaultData };

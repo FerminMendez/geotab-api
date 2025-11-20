@@ -1,31 +1,9 @@
 const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
+const { getSyncCursor, updateSyncState, markSyncError } = require("../lib/sync_state");
 
-/* -------------------------------------------
-   Helpers for Sync State
-------------------------------------------- */
-
-async function getTripTimestamp() {
-  const rows = await sql`
-    SELECT last_timestamp
-    FROM sync_state
-    WHERE source = 'trip'
-  `;
-  if (rows.length === 0) {
-    return new Date("2000-01-01T00:00:00Z").toISOString();
-  }
-  const ts = rows[0].last_timestamp;
-  return ts instanceof Date ? ts.toISOString() : ts;
-}
-
-async function updateTripTimestamp(ts) {
-  const iso = ts instanceof Date ? ts.toISOString() : ts;
-  await sql`
-    UPDATE sync_state
-    SET last_timestamp = ${iso}
-    WHERE source = 'trip'
-  `;
-}
+const SOURCE = "trip";
+const DEFAULT_FROM = "2000-01-01T00:00:00Z";
 
 /* -------------------------------------------
    Insert Trip rows
@@ -69,13 +47,22 @@ function durationToSeconds(value) {
 async function insertTripsBatch(batch) {
   if (batch.length === 0) return;
 
-  const rows = batch.map(t => {
+  let processed = 0;
+  for (const t of batch) {
     const idle = durationToSeconds(t.idlingDuration ?? t.idleDuration);
     const drive = durationToSeconds(t.drivingDuration ?? t.driveDuration);
     const stop = durationToSeconds(t.stopDuration);
 
-    return sql`
-      (
+    await sql`
+      INSERT INTO geotab_trip (
+        id, device_id, driver_id,
+        start_time, end_time,
+        distance_km, top_speed_kph,
+        idle_time_seconds, moving_time_seconds, stop_time_seconds,
+        start_location, end_location,
+        raw, last_update
+      )
+      VALUES (
         ${t.id},
         ${t.device?.id || null},
         ${t.driver?.id || null},
@@ -91,34 +78,27 @@ async function insertTripsBatch(batch) {
         ${JSON.stringify(t)},
         NOW()
       )
+      ON CONFLICT(id) DO UPDATE SET
+        device_id = EXCLUDED.device_id,
+        driver_id = EXCLUDED.driver_id,
+        start_time = EXCLUDED.start_time,
+        end_time = EXCLUDED.end_time,
+        distance_km = EXCLUDED.distance_km,
+        top_speed_kph = EXCLUDED.top_speed_kph,
+        idle_time_seconds = EXCLUDED.idle_time_seconds,
+        moving_time_seconds = EXCLUDED.moving_time_seconds,
+        stop_time_seconds = EXCLUDED.stop_time_seconds,
+        start_location = EXCLUDED.start_location,
+        end_location = EXCLUDED.end_location,
+        raw = EXCLUDED.raw,
+        last_update = NOW();
     `;
-  });
 
-  await sql`
-    INSERT INTO geotab_trip (
-      id, device_id, driver_id,
-      start_time, end_time,
-      distance_km, top_speed_kph,
-      idle_time_seconds, moving_time_seconds, stop_time_seconds,
-      start_location, end_location,
-      raw, last_update
-    )
-    VALUES ${sql.join(rows, ",")}
-    ON CONFLICT(id) DO UPDATE SET
-      device_id = EXCLUDED.device_id,
-      driver_id = EXCLUDED.driver_id,
-      start_time = EXCLUDED.start_time,
-      end_time = EXCLUDED.end_time,
-      distance_km = EXCLUDED.distance_km,
-      top_speed_kph = EXCLUDED.top_speed_kph,
-      idle_time_seconds = EXCLUDED.idle_time_seconds,
-      moving_time_seconds = EXCLUDED.moving_time_seconds,
-      stop_time_seconds = EXCLUDED.stop_time_seconds,
-      start_location = EXCLUDED.start_location,
-      end_location = EXCLUDED.end_location,
-      raw = EXCLUDED.raw,
-      last_update = NOW();
-  `;
+    processed += 1;
+    if (processed % 100 === 0) {
+      console.log(`2.6 Trip - batch upserted ${processed}/${batch.length}`);
+    }
+  }
 }
 
 
@@ -128,57 +108,73 @@ async function insertTripsBatch(batch) {
 async function syncTrip(api) {
   console.log("2.6 Trip - fetching from Geotab");
 
-  let fromDate = await getTripTimestamp();
-  console.log(`2.6 Trip - fromDate ${fromDate}`);
+  try {
+    let fromDate = await getSyncCursor(SOURCE, DEFAULT_FROM);
+    if (!fromDate) fromDate = DEFAULT_FROM;
+    console.log(`2.6 Trip - fromDate ${fromDate}`);
 
-  const BATCH = 500;
-  let total = 0;
-  let maxDate = null;
+    const BATCH = 500;
+    const SAFETY_LIMIT = 5000;
+    let total = 0;
+    let maxDate = null;
 
-  while (true) {
-    console.log(`2.6 Trip - fetching batch from ${fromDate}`);
+    while (true) {
+      console.log(`2.6 Trip - fetching batch from ${fromDate}`);
 
-    const trips = await api.call("Get", {
-      typeName: "Trip",
-      search: { fromDate },
-      resultsLimit: BATCH
-    });
+      const trips = await api.call("Get", {
+        typeName: "Trip",
+        search: { fromDate },
+        resultsLimit: BATCH
+      });
 
-    console.log(`2.6 Trip - received batch ${trips.length}`);
+      console.log(`2.6 Trip - received batch ${trips.length}`);
 
-    if (trips.length === 0) break;
+      if (trips.length === 0) break;
 
-    // Insert batch
-    await insertTripsBatch(trips);
-    total += trips.length;
+      await insertTripsBatch(trips);
+      total += trips.length;
 
-    // Update cursor (max stop datetime)
-    for (const t of trips) {
-      if (t.stop) {
-        const d = new Date(t.stop);
-        if (!maxDate || d > maxDate) maxDate = d;
+      for (const t of trips) {
+        if (t.stop) {
+          const d = new Date(t.stop);
+          if (!maxDate || d > maxDate) maxDate = d;
+        }
+      }
+
+      if (maxDate) {
+        const iso = maxDate.toISOString();
+        fromDate = iso;
+        await updateSyncState(SOURCE, {
+          lastTimestamp: iso,
+          recordsCount: total,
+          lastError: null
+        });
+      }
+
+      if (total >= SAFETY_LIMIT) {
+        console.log("2.6 Trip - Safety stop at 5000 rows (serverless protection)");
+        break;
       }
     }
 
-    if (maxDate) {
-      fromDate = maxDate.toISOString();
-      await updateTripTimestamp(maxDate);
-    }
+    const finalTimestamp = maxDate ? maxDate.toISOString() : fromDate;
+    await updateSyncState(SOURCE, {
+      lastTimestamp: finalTimestamp,
+      recordsCount: total,
+      lastError: null
+    });
 
-    // Safety break for serverless
-    if (total >= 5000) {
-      console.log("2.6 Trip - Safety stop at 5000 rows (serverless protection)");
-      break;
-    }
+    console.log(`2.6 Trip - completed. Total: ${total}`);
+
+    return {
+      tripsProcessed: total,
+      fromDate,
+      toDate: maxDate
+    };
+  } catch (err) {
+    await markSyncError(SOURCE, err);
+    throw err;
   }
-
-  console.log(`2.6 Trip - completed. Total: ${total}`);
-
-  return {
-    tripsProcessed: total,
-    fromDate,
-    toDate: maxDate
-  };
 }
 
 
