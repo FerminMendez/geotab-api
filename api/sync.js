@@ -1,3 +1,4 @@
+// api/sync.js
 const GeotabApi = require("mg-api-js");
 
 const { syncFaultData } = require("./etl/fault");
@@ -5,9 +6,9 @@ const { syncDevice } = require("./etl/device");
 const { syncUser } = require("./etl/user");
 const { syncZone } = require("./etl/zone");
 const { syncRule } = require("./etl/rule");
-const { syncTrip } = require("./etl/trip");
 
-
+// ⚠️ Trip se sincroniza ahora por su propio job (trip_batch + sync_trip)
+// const { syncTrip } = require("./etl/trip");
 
 const { logSuccess, logError } = require("./etl/utils");
 
@@ -17,6 +18,7 @@ module.exports = async (req, res) => {
 
   try {
     console.log("1. Authenticating...");
+
     const api = new GeotabApi({
       credentials: {
         database: process.env.GEOTAB_DATABASE,
@@ -27,27 +29,27 @@ module.exports = async (req, res) => {
 
     await api.authenticate();
     console.log("1.1 Auth OK");
-    console.log("2. Starting parallel syncs (FaultData, Device, User, Zone, Rule, Trip)...");
+
+    console.log("2. Starting parallel syncs (FaultData, Device, User, Zone, Rule)...");
 
     const [
       faultResult,
       deviceResult,
       userResult,
       zoneResult,
-      ruleResult,
-      tripResult
+      ruleResult
     ] = await Promise.all([
       syncFaultData(api),
       syncDevice(api),
       syncUser(api),
       syncZone(api),
-      syncRule(api),
-      syncTrip(api)
+      syncRule(api)
     ]);
+
     console.log("2.1 Parallel syncs resolved");
+
     fromDateFault = faultResult.fromDate;
 
-    // Final logging
     const duration = Date.now() - start;
 
     console.log("3. Logging success...");
@@ -57,14 +59,23 @@ module.exports = async (req, res) => {
       usersProcessed: userResult.usersProcessed,
       zonesProcessed: zoneResult.zonesProcessed,
       rulesProcessed: ruleResult.rulesProcessed,
-      tripsProcessed: tripResult.tripsProcessed,
+      // Trip is excluded from main sync now
+      tripsProcessed: 0, 
+
       fromDate: faultResult.fromDate,
       toDate: faultResult.toDate,
       duration,
-      raw: { faultResult, deviceResult, userResult, zoneResult, ruleResult, tripResult }
+      raw: {
+        faultResult,
+        deviceResult,
+        userResult,
+        zoneResult,
+        ruleResult
+      }
     });
 
     console.log("4. Sending success response");
+
     res.status(200).json({
       status: "ok",
       faultResult,
@@ -72,7 +83,7 @@ module.exports = async (req, res) => {
       userResult,
       zoneResult,
       ruleResult,
-      tripResult,
+      tripsHandledSeparately: true,
       duration
     });
 
@@ -80,6 +91,7 @@ module.exports = async (req, res) => {
     const duration = Date.now() - start;
 
     console.log("E1. Logging error...");
+    
     await logError({
       error: String(err),
       fromDate: fromDateFault,
@@ -88,6 +100,7 @@ module.exports = async (req, res) => {
     });
 
     console.log("E2. Sending error response");
+
     res.status(500).json({
       error: String(err),
       duration
