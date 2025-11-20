@@ -43,17 +43,21 @@ async function insertFaultData(rows) {
 }
 
 async function syncFaultData(api) {
+  console.log("2.1 FaultData - preparing request");
   const lastTs = await getLastTimestamp();
+  console.log(`2.1 FaultData - fromDate ${lastTs}`);
 
   const results = await api.call("Get", {
     typeName: "FaultData",
     search: { fromDate: lastTs }
   });
+  console.log(`2.1 FaultData - received ${results.length} records`);
 
   let count = 0;
   let maxDate = null;
 
   if (results.length > 0) {
+    console.log("2.1 FaultData - inserting rows into Neon");
     await insertFaultData(results);
     count = results.length;
 
@@ -64,9 +68,13 @@ async function syncFaultData(api) {
       }
     }
 
-    if (maxDate) await updateLastTimestamp(maxDate.toISOString());
+    if (maxDate) {
+      console.log(`2.1 FaultData - updating sync_state to ${maxDate.toISOString()}`);
+      await updateLastTimestamp(maxDate.toISOString());
+    }
   }
 
+  console.log("2.1 FaultData - completed");
   return {
     recordsInserted: count,
     fromDate: lastTs,

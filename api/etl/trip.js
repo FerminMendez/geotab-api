@@ -67,6 +67,7 @@ function durationToSeconds(value) {
 }
 
 async function insertTrips(list) {
+  let processed = 0;
   for (const t of list) {
     const idleSeconds = durationToSeconds(t.idlingDuration ?? t.idleDuration);
     const driveSeconds = durationToSeconds(t.drivingDuration ?? t.driveDuration);
@@ -112,7 +113,12 @@ async function insertTrips(list) {
         raw = EXCLUDED.raw,
         last_update = NOW();
     `;
+    processed += 1;
+    if (processed % 100 === 0) {
+      console.log(`2.6 Trip - upserted ${processed}/${list.length}`);
+    }
   }
+  console.log(`2.6 Trip - upsert finished (${processed} rows)`);
 }
 
 /* -------------------------------------------
@@ -120,18 +126,22 @@ async function insertTrips(list) {
 ------------------------------------------- */
 
 async function syncTrip(api) {
+  console.log("2.6 Trip - fetching from Geotab");
   const lastTs = await getTripTimestamp();
+  console.log(`2.6 Trip - fromDate ${lastTs}`);
 
   const trips = await api.call("Get", {
     typeName: "Trip",
     search: { fromDate: lastTs },
     resultsLimit: 10000
   });
+  console.log(`2.6 Trip - received ${trips.length} records`);
 
   let count = trips.length;
   let maxDate = null;
 
   if (count > 0) {
+    console.log("2.6 Trip - inserting rows into Neon");
     await insertTrips(trips);
 
     for (const t of trips) {
@@ -141,10 +151,12 @@ async function syncTrip(api) {
     }
 
     if (maxDate) {
+      console.log(`2.6 Trip - updating sync_state to ${maxDate}`);
       await updateTripTimestamp(maxDate);
     }
   }
 
+  console.log("2.6 Trip - completed");
   return {
     tripsProcessed: count,
     fromDate: lastTs,

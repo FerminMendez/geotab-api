@@ -2,6 +2,7 @@ const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
 
 async function upsertZones(zones) {
+  let processed = 0;
   for (const z of zones) {
     await sql`
       INSERT INTO geotab_zone (
@@ -24,12 +25,20 @@ async function upsertZones(zones) {
         raw=EXCLUDED.raw,
         last_update=NOW();
     `;
+    processed += 1;
+    if (processed % 100 === 0) {
+      console.log(`2.4 Zone - upserted ${processed}/${zones.length}`);
+    }
   }
+  console.log(`2.4 Zone - upsert finished (${processed} rows)`);
 }
 
 async function syncZone(api) {
+  console.log("2.4 Zone - fetching from Geotab");
   const zones = await api.call("Get", { typeName: "Zone" });
+  console.log(`2.4 Zone - received ${zones.length} records, starting upsert`);
   await upsertZones(zones);
+  console.log("2.4 Zone - completed");
   return { zonesProcessed: zones.length };
 }
 

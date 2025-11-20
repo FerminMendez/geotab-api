@@ -2,6 +2,7 @@ const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
 
 async function upsertDevices(devices) {
+  let processed = 0;
   for (const d of devices) {
     await sql`
       INSERT INTO geotab_device (
@@ -41,12 +42,20 @@ async function upsertDevices(devices) {
         raw=EXCLUDED.raw,
         last_update=NOW();
     `;
+    processed += 1;
+    if (processed % 100 === 0) {
+      console.log(`2.2 Device - upserted ${processed}/${devices.length}`);
+    }
   }
+  console.log(`2.2 Device - upsert finished (${processed} rows)`);
 }
 
 async function syncDevice(api) {
+  console.log("2.2 Device - fetching from Geotab");
   const devices = await api.call("Get", { typeName: "Device", resultsLimit: 10000 });
+  console.log(`2.2 Device - received ${devices.length} records, starting upsert`);
   await upsertDevices(devices);
+  console.log("2.2 Device - completed");
 
   return {
     devicesProcessed: devices.length

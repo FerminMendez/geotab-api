@@ -2,6 +2,7 @@ const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
 
 async function logSuccess(data) {
+  console.log("3.1 logSuccess - inserting etl_logs row");
   await sql`
     INSERT INTO etl_logs (
       status,
@@ -22,9 +23,11 @@ async function logSuccess(data) {
       ${JSON.stringify(data.raw || {})}
     )
   `;
+  console.log("3.1 logSuccess - done");
 }
 
 async function logError(data) {
+  console.log("E1.1 logError - inserting etl_logs row");
   await sql`
     INSERT INTO etl_logs (
       status,
@@ -41,6 +44,7 @@ async function logError(data) {
       ${JSON.stringify(data.raw || {})}
     )
   `;
+  console.log("E1.1 logError - done");
 }
 
 module.exports = { logSuccess, logError };
