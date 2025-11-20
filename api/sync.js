@@ -5,6 +5,7 @@ const { syncDevice } = require("./etl/device");
 const { syncUser } = require("./etl/user");
 const { syncZone } = require("./etl/zone");
 const { syncRule } = require("./etl/rule");
+const { syncTrip } = require("./etl/trip");
 
 
 
@@ -26,20 +27,22 @@ module.exports = async (req, res) => {
 
     await api.authenticate();
     console.log("1.1 Auth OK");
-    console.log("2. Starting parallel syncs (FaultData, Device, User, Zone, Rule)...");
+    console.log("2. Starting parallel syncs (FaultData, Device, User, Zone, Rule, Trip)...");
 
     const [
       faultResult,
       deviceResult,
       userResult,
       zoneResult,
-      ruleResult
+      ruleResult,
+      tripResult
     ] = await Promise.all([
       syncFaultData(api),
       syncDevice(api),
       syncUser(api),
       syncZone(api),
-      syncRule(api)
+      syncRule(api),
+      syncTrip(api)
     ]);
     console.log("2.1 Parallel syncs resolved");
     fromDateFault = faultResult.fromDate;
@@ -54,11 +57,11 @@ module.exports = async (req, res) => {
       usersProcessed: userResult.usersProcessed,
       zonesProcessed: zoneResult.zonesProcessed,
       rulesProcessed: ruleResult.rulesProcessed,
-      tripsProcessed: 0,
+      tripsProcessed: tripResult.tripsProcessed,
       fromDate: faultResult.fromDate,
       toDate: faultResult.toDate,
       duration,
-      raw: { faultResult, deviceResult, userResult, zoneResult, ruleResult }
+      raw: { faultResult, deviceResult, userResult, zoneResult, ruleResult, tripResult }
     });
 
     console.log("4. Sending success response");
@@ -69,6 +72,7 @@ module.exports = async (req, res) => {
       userResult,
       zoneResult,
       ruleResult,
+      tripResult,
       duration
     });
 

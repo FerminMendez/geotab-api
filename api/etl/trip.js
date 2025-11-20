@@ -66,23 +66,16 @@ function durationToSeconds(value) {
   return Math.round(totalSeconds);
 }
 
-async function insertTrips(list) {
-  let processed = 0;
-  for (const t of list) {
-    const idleSeconds = durationToSeconds(t.idlingDuration ?? t.idleDuration);
-    const driveSeconds = durationToSeconds(t.drivingDuration ?? t.driveDuration);
-    const stopSeconds = durationToSeconds(t.stopDuration);
+async function insertTripsBatch(batch) {
+  if (batch.length === 0) return;
 
-    await sql`
-      INSERT INTO geotab_trip (
-        id, device_id, driver_id,
-        start_time, end_time,
-        distance_km, top_speed_kph,
-        idle_time_seconds, moving_time_seconds, stop_time_seconds,
-        start_location, end_location,
-        raw, last_update
-      )
-      VALUES (
+  const rows = batch.map(t => {
+    const idle = durationToSeconds(t.idlingDuration ?? t.idleDuration);
+    const drive = durationToSeconds(t.drivingDuration ?? t.driveDuration);
+    const stop = durationToSeconds(t.stopDuration);
+
+    return sql`
+      (
         ${t.id},
         ${t.device?.id || null},
         ${t.driver?.id || null},
@@ -90,78 +83,103 @@ async function insertTrips(list) {
         ${t.stop || null},
         ${t.distance || null},
         ${t.maximumSpeed || null},
-        ${idleSeconds},
-        ${driveSeconds},
-        ${stopSeconds},
+        ${idle},
+        ${drive},
+        ${stop},
         ${JSON.stringify(t.startPosition || null)},
         ${JSON.stringify(t.stopPosition || null)},
         ${JSON.stringify(t)},
         NOW()
       )
-      ON CONFLICT(id) DO UPDATE SET
-        device_id = EXCLUDED.device_id,
-        driver_id = EXCLUDED.driver_id,
-        start_time = EXCLUDED.start_time,
-        end_time = EXCLUDED.end_time,
-        distance_km = EXCLUDED.distance_km,
-        top_speed_kph = EXCLUDED.top_speed_kph,
-        idle_time_seconds = EXCLUDED.idle_time_seconds,
-        moving_time_seconds = EXCLUDED.moving_time_seconds,
-        stop_time_seconds = EXCLUDED.stop_time_seconds,
-        start_location = EXCLUDED.start_location,
-        end_location = EXCLUDED.end_location,
-        raw = EXCLUDED.raw,
-        last_update = NOW();
     `;
-    processed += 1;
-    if (processed % 100 === 0) {
-      console.log(`2.6 Trip - upserted ${processed}/${list.length}`);
-    }
-  }
-  console.log(`2.6 Trip - upsert finished (${processed} rows)`);
+  });
+
+  await sql`
+    INSERT INTO geotab_trip (
+      id, device_id, driver_id,
+      start_time, end_time,
+      distance_km, top_speed_kph,
+      idle_time_seconds, moving_time_seconds, stop_time_seconds,
+      start_location, end_location,
+      raw, last_update
+    )
+    VALUES ${sql.join(rows, ",")}
+    ON CONFLICT(id) DO UPDATE SET
+      device_id = EXCLUDED.device_id,
+      driver_id = EXCLUDED.driver_id,
+      start_time = EXCLUDED.start_time,
+      end_time = EXCLUDED.end_time,
+      distance_km = EXCLUDED.distance_km,
+      top_speed_kph = EXCLUDED.top_speed_kph,
+      idle_time_seconds = EXCLUDED.idle_time_seconds,
+      moving_time_seconds = EXCLUDED.moving_time_seconds,
+      stop_time_seconds = EXCLUDED.stop_time_seconds,
+      start_location = EXCLUDED.start_location,
+      end_location = EXCLUDED.end_location,
+      raw = EXCLUDED.raw,
+      last_update = NOW();
+  `;
 }
+
 
 /* -------------------------------------------
    Main Sync Function
 ------------------------------------------- */
-
 async function syncTrip(api) {
   console.log("2.6 Trip - fetching from Geotab");
-  const lastTs = await getTripTimestamp();
-  console.log(`2.6 Trip - fromDate ${lastTs}`);
 
-  const trips = await api.call("Get", {
-    typeName: "Trip",
-    search: { fromDate: lastTs },
-    resultsLimit: 10000
-  });
-  console.log(`2.6 Trip - received ${trips.length} records`);
+  let fromDate = await getTripTimestamp();
+  console.log(`2.6 Trip - fromDate ${fromDate}`);
 
-  let count = trips.length;
+  const BATCH = 500;
+  let total = 0;
   let maxDate = null;
 
-  if (count > 0) {
-    console.log("2.6 Trip - inserting rows into Neon");
-    await insertTrips(trips);
+  while (true) {
+    console.log(`2.6 Trip - fetching batch from ${fromDate}`);
 
+    const trips = await api.call("Get", {
+      typeName: "Trip",
+      search: { fromDate },
+      resultsLimit: BATCH
+    });
+
+    console.log(`2.6 Trip - received batch ${trips.length}`);
+
+    if (trips.length === 0) break;
+
+    // Insert batch
+    await insertTripsBatch(trips);
+    total += trips.length;
+
+    // Update cursor (max stop datetime)
     for (const t of trips) {
-      if (!t.stop) continue;
-      const d = new Date(t.stop);
-      if (!maxDate || d > maxDate) maxDate = d;
+      if (t.stop) {
+        const d = new Date(t.stop);
+        if (!maxDate || d > maxDate) maxDate = d;
+      }
     }
 
     if (maxDate) {
-      console.log(`2.6 Trip - updating sync_state to ${maxDate}`);
+      fromDate = maxDate.toISOString();
       await updateTripTimestamp(maxDate);
+    }
+
+    // Safety break for serverless
+    if (total >= 5000) {
+      console.log("2.6 Trip - Safety stop at 5000 rows (serverless protection)");
+      break;
     }
   }
 
-  console.log("2.6 Trip - completed");
+  console.log(`2.6 Trip - completed. Total: ${total}`);
+
   return {
-    tripsProcessed: count,
-    fromDate: lastTs,
+    tripsProcessed: total,
+    fromDate,
     toDate: maxDate
   };
 }
+
 
 module.exports = { syncTrip };
