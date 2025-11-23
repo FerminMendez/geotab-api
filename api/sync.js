@@ -1,16 +1,16 @@
 // api/sync.js
 const GeotabApi = require("mg-api-js");
 
-const { syncFaultData } = require("./etl/fault");
-const { syncDevice } = require("./etl/device");
-const { syncUser } = require("./etl/user");
-const { syncZone } = require("./etl/zone");
-const { syncRule } = require("./etl/rule");
+const { syncFaultData } = require("../lib/etl/fault");
+const { syncDevice } = require("../lib/etl/device");
+const { syncUser } = require("../lib/etl/user");
+const { syncZone } = require("../lib/etl/zone");
+const { syncRule } = require("../lib/etl/rule");
 
 // ⚠️ Trip se sincroniza ahora por su propio job (trip_batch + sync_trip)
-// const { syncTrip } = require("./etl/trip");
+// const { syncTrip } = require("../lib/etl/trip");
 
-const { logSuccess, logError } = require("./etl/utils");
+const { logSuccess, logError } = require("../lib/etl/utils");
 
 module.exports = async (req, res) => {
   const start = Date.now();
