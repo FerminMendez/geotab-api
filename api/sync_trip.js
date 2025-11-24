@@ -1,12 +1,20 @@
 // api/sync_trip.js
 module.exports = async (req, res) => {
   try {
+    const protocol = req.headers["x-forwarded-proto"] || "https";
+    const host = req.headers["x-forwarded-host"] || req.headers.host;
+    const baseUrl = process.env.APP_URL || (host ? `${protocol}://${host}` : null);
+
+    if (!baseUrl) {
+      throw new Error("APP_URL/host missing for trip_batch call");
+    }
+
     let total = 0;
     let loops = 0;
 
     while (true) {
       loops++;
-      const resp = await fetch(process.env.APP_URL + "/api/trip_batch");
+      const resp = await fetch(`${baseUrl}/api/trip_batch`);
       const data = await resp.json();
 
       if (resp.status !== 200) {
