@@ -4,7 +4,6 @@
     "private": true,
     "dependencies": {
         "@neondatabase/serverless": "^1.0.0",
-        "mg-api-js": "^3.0.0",
-        "node-fetch": "^3.3.2"
+        "mg-api-js": "^3.0.0"
     }
 }
