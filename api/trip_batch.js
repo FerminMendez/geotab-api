@@ -39,50 +39,48 @@ async function updateTripTimestamp(ts) {
 async function insertTripsBatch(batch) {
   if (!batch.length) return;
 
-  const rows = batch.map(t => sql`
-    (
-      ${t.id},
-      ${t.device?.id || null},
-      ${t.driver?.id || null},
-      ${t.start || null},
-      ${t.stop || null},
-      ${t.distance || null},
-      ${t.maximumSpeed || null},
-      ${durationToSeconds(t.idleDuration)},
-      ${durationToSeconds(t.driveDuration)},
-      ${durationToSeconds(t.stopDuration)},
-      ${JSON.stringify(t.startPosition || null)},
-      ${JSON.stringify(t.stopPosition || null)},
-      ${JSON.stringify(t)},
-      NOW()
-    )
-  `);
-
-  await sql`
-    INSERT INTO geotab_trip (
-      id, device_id, driver_id,
-      start_time, end_time,
-      distance_km, top_speed_kph,
-      idle_time_seconds, moving_time_seconds, stop_time_seconds,
-      start_location, end_location,
-      raw, last_update
-    )
-    VALUES ${sql.join(rows, ",")}
-    ON CONFLICT(id) DO UPDATE SET
-      device_id = EXCLUDED.device_id,
-      driver_id = EXCLUDED.driver_id,
-      start_time = EXCLUDED.start_time,
-      end_time = EXCLUDED.end_time,
-      distance_km = EXCLUDED.distance_km,
-      top_speed_kph = EXCLUDED.top_speed_kph,
-      idle_time_seconds = EXCLUDED.idle_time_seconds,
-      moving_time_seconds = EXCLUDED.moving_time_seconds,
-      stop_time_seconds = EXCLUDED.stop_time_seconds,
-      start_location = EXCLUDED.start_location,
-      end_location = EXCLUDED.end_location,
-      raw = EXCLUDED.raw,
-      last_update = NOW();
-  `;
+  for (const t of batch) {
+    await sql`
+      INSERT INTO geotab_trip (
+        id, device_id, driver_id,
+        start_time, end_time,
+        distance_km, top_speed_kph,
+        idle_time_seconds, moving_time_seconds, stop_time_seconds,
+        start_location, end_location,
+        raw, last_update
+      )
+      VALUES (
+        ${t.id},
+        ${t.device?.id || null},
+        ${t.driver?.id || null},
+        ${t.start || null},
+        ${t.stop || null},
+        ${t.distance || null},
+        ${t.maximumSpeed || null},
+        ${durationToSeconds(t.idleDuration)},
+        ${durationToSeconds(t.driveDuration)},
+        ${durationToSeconds(t.stopDuration)},
+        ${JSON.stringify(t.startPosition || null)},
+        ${JSON.stringify(t.stopPosition || null)},
+        ${JSON.stringify(t)},
+        NOW()
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        device_id = EXCLUDED.device_id,
+        driver_id = EXCLUDED.driver_id,
+        start_time = EXCLUDED.start_time,
+        end_time = EXCLUDED.end_time,
+        distance_km = EXCLUDED.distance_km,
+        top_speed_kph = EXCLUDED.top_speed_kph,
+        idle_time_seconds = EXCLUDED.idle_time_seconds,
+        moving_time_seconds = EXCLUDED.moving_time_seconds,
+        stop_time_seconds = EXCLUDED.stop_time_seconds,
+        start_location = EXCLUDED.start_location,
+        end_location = EXCLUDED.end_location,
+        raw = EXCLUDED.raw,
+        last_update = NOW();
+    `;
+  }
 }
 
 module.exports = async (req, res) => {
