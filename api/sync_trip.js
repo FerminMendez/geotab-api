@@ -1,6 +1,4 @@
 // api/sync_trip.js
-const fetch = require("node-fetch");
-
 module.exports = async (req, res) => {
   try {
     let total = 0;
@@ -32,3 +30,5 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: String(err) });
   }
 };
+
+
