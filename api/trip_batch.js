@@ -1,6 +1,7 @@
 // api/trip_batch.js
 const { neon } = require("@neondatabase/serverless");
 const sql = neon(process.env.DATABASE_URL);
+const { logSuccess, logError } = require("../lib/etl/utils");
 
 const BATCH = 500;
 
@@ -84,6 +85,9 @@ async function insertTripsBatch(batch) {
 }
 
 module.exports = async (req, res) => {
+  const start = Date.now();
+  let fromDate = null;
+
   try {
     const GeotabApi = require("mg-api-js");
     const api = new GeotabApi({
@@ -96,7 +100,7 @@ module.exports = async (req, res) => {
 
     await api.authenticate();
 
-    const fromDate = await getTripTimestamp();
+    fromDate = await getTripTimestamp();
 
     const batch = await api.call("Get", {
       typeName: "Trip",
@@ -116,6 +120,21 @@ module.exports = async (req, res) => {
 
     if (maxDate) await updateTripTimestamp(maxDate);
 
+    const duration = Date.now() - start;
+
+    await logSuccess({
+      recordsInserted: batch.length,
+      tripsProcessed: batch.length,
+      fromDate,
+      toDate: maxDate || null,
+      duration,
+      raw: {
+        batchSize: batch.length,
+        hasMore: batch.length === BATCH,
+        nextFromDate: maxDate
+      }
+    });
+
     res.status(200).json({
       processed: batch.length,
       nextFromDate: maxDate,
@@ -124,6 +143,13 @@ module.exports = async (req, res) => {
 
   } catch (err) {
     console.error("trip_batch error:", err);
+    const duration = Date.now() - start;
+    await logError({
+      error: String(err),
+      fromDate,
+      duration,
+      raw: { message: err.message, stack: err.stack }
+    });
     res.status(500).json({ error: String(err) });
   }
 };

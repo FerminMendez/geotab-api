@@ -1,5 +1,11 @@
 // api/sync_trip.js
+const { logSuccess, logError } = require("../lib/etl/utils");
+
 module.exports = async (req, res) => {
+  const start = Date.now();
+  let loops = 0;
+  let total = 0;
+
   try {
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const host = req.headers["x-forwarded-host"] || req.headers.host;
@@ -8,9 +14,6 @@ module.exports = async (req, res) => {
     if (!baseUrl) {
       throw new Error("APP_URL/host missing for trip_batch call");
     }
-
-    let total = 0;
-    let loops = 0;
 
     while (true) {
       loops++;
@@ -27,6 +30,16 @@ module.exports = async (req, res) => {
       if (loops >= 50) break; // safety guard (50 batches)
     }
 
+    const duration = Date.now() - start;
+
+    await logSuccess({
+      tripsProcessed: total,
+      fromDate: null,
+      toDate: null,
+      duration,
+      raw: { batchesExecuted: loops, totalInserted: total }
+    });
+
     res.status(200).json({
       status: "ok",
       batchesExecuted: loops,
@@ -35,6 +48,13 @@ module.exports = async (req, res) => {
 
   } catch (err) {
     console.error("sync_trip error:", err);
+    const duration = Date.now() - start;
+    await logError({
+      error: String(err),
+      fromDate: null,
+      duration,
+      raw: { message: err.message, stack: err.stack, batchesExecuted: loops, totalInserted: total }
+    });
     res.status(500).json({ error: String(err) });
   }
 };
